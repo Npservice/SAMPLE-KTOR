@@ -251,3 +251,7 @@ class ContohService(private val cache: CacheService) {
     suspend fun stats(): String = cache.remember("stats", ttlSeconds = 60) { hitungStatsYangBerat() }
 }
 ```
+
+## Lisensi
+
+[MIT](LICENSE)
