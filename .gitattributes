@@ -1,0 +1,6 @@
+# Script shell harus LF supaya bisa jalan di Linux/Docker.
+gradlew text eol=lf
+*.sh text eol=lf
+
+# Script Windows tetap CRLF.
+*.bat text eol=crlf

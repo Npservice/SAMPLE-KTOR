@@ -1,0 +1,22 @@
+# Gradle / build output
+.gradle/
+build/
+.kotlin/
+
+# Env
+.env
+
+# Uploaded files
+/storage
+
+# Logs
+/logs
+*.log
+
+# IDE
+/.idea
+*.iml
+out/
+
+# OS
+.DS_Store
