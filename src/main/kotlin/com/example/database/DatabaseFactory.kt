@@ -1,28 +1,28 @@
 package com.example.database
 
 import com.example.config.DatabaseConfig
-import com.example.modules.auth.PermissionsTable
-import com.example.modules.auth.RoleHasPermissionTable
-import com.example.modules.auth.RolesTable
-import com.example.modules.files.FilesTable
-import com.example.modules.todos.TodosTable
-import com.example.modules.users.UserRolesTable
-import com.example.modules.users.UsersTable
+import com.example.features.file.FileTable
+import com.example.features.role.PermissionTable
+import com.example.features.role.RoleHasPermissionTable
+import com.example.features.role.RoleTable
+import com.example.features.todo.TodoTable
+import com.example.features.user.UserRoleTable
+import com.example.features.user.UserTable
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
-import com.example.common.logging.SqlFileLogger
+import com.example.core.logging.SqlFileLogger
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.SchemaUtils
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 
 val ALL_TABLES = arrayOf(
-    UsersTable,
-    RolesTable,
-    PermissionsTable,
-    UserRolesTable,
+    UserTable,
+    RoleTable,
+    PermissionTable,
+    UserRoleTable,
     RoleHasPermissionTable,
-    FilesTable,
-    TodosTable,
+    FileTable,
+    TodoTable,
 )
 
 class DatabaseFactory(private val config: DatabaseConfig) {

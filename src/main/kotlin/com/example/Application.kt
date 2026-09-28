@@ -1,28 +1,23 @@
 package com.example
 
-import com.example.common.plugins.JWT_AUTH
-import com.example.common.plugins.configureErrorHandling
-import com.example.common.plugins.configureHttp
-import com.example.common.plugins.configureSecurity
-import com.example.common.plugins.configureVirtualThreads
 import com.example.config.AppConfig
 import com.example.config.CacheService
 import com.example.config.Env
+import com.example.core.exception.configureErrorHandling
+import com.example.core.plugins.configureHttp
+import com.example.core.plugins.configureVirtualThreads
+import com.example.core.security.configureSecurity
 import com.example.database.DatabaseFactory
-import com.example.modules.auth.authRoutes
-import com.example.modules.auth.rolesRoutes
-import com.example.modules.files.filesRoutes
-import com.example.modules.files.publicFilesRoutes
-import com.example.modules.todos.todosRoutes
-import com.example.modules.users.usersRoutes
+import com.example.features.auth.authModule
+import com.example.features.file.fileModule
+import com.example.features.role.roleModule
+import com.example.features.todo.todoModule
+import com.example.features.user.userModule
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
-import io.ktor.server.auth.authenticate
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
-import io.ktor.server.routing.route
-import io.ktor.server.routing.routing
 import org.koin.core.module.Module
 import org.koin.ktor.ext.get
 import org.koin.ktor.plugin.Koin
@@ -64,19 +59,10 @@ fun Application.module(
     configureErrorHandling()
     configureSecurity(get())
 
-    routing {
-        route("/api/v1") {
-            // Public, tanpa login
-            authRoutes()
-            publicFilesRoutes()
-
-            // Wajib login
-            authenticate(JWT_AUTH) {
-                rolesRoutes()
-                usersRoutes()
-                filesRoutes()
-                todosRoutes()
-            }
-        }
-    }
+    // Modul per fitur (features/<nama>/<Nama>Routes.kt). Fitur baru cukup tambah satu baris di sini.
+    authModule()
+    roleModule()
+    userModule()
+    fileModule()
+    todoModule()
 }

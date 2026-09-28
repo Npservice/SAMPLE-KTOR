@@ -48,6 +48,8 @@ dependencies {
     implementation("io.ktor:ktor-server-rate-limit")
     implementation("io.ktor:ktor-server-call-logging")
     implementation("io.ktor:ktor-server-call-id")
+    implementation("io.ktor:ktor-server-request-validation")
+    implementation("io.ktor:ktor-server-double-receive")
 
     implementation("io.insert-koin:koin-ktor:$koinVersion")
     implementation("io.insert-koin:koin-logger-slf4j:$koinVersion")

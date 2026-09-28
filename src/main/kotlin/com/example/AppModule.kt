@@ -2,40 +2,37 @@ package com.example
 
 import com.example.config.AppConfig
 import com.example.config.CacheService
+import com.example.core.security.JwtProvider
 import com.example.database.DatabaseFactory
-import com.example.modules.auth.AuthService
-import com.example.modules.auth.JwtService
-import com.example.modules.auth.RolesRepository
-import com.example.modules.auth.RolesService
-import com.example.modules.files.FilesRepository
-import com.example.modules.files.FilesService
-import com.example.modules.todos.TodosRepository
-import com.example.modules.todos.TodosService
-import com.example.modules.users.UsersRepository
-import com.example.modules.users.UsersService
+import com.example.features.auth.AuthService
+import com.example.features.file.FileRepository
+import com.example.features.file.FileService
+import com.example.features.role.RoleRepository
+import com.example.features.role.RoleService
+import com.example.features.todo.TodoRepository
+import com.example.features.todo.TodoService
+import com.example.features.user.UserRepository
+import com.example.features.user.UserService
 import org.koin.dsl.module
 
-/** Daftar dependency aplikasi (Koin). */
+/** Daftar dependency aplikasi (Koin). Modul fitur cukup `inject<...>()` service-nya. */
 fun appModule(config: AppConfig) = module {
     single { config }
     single { DatabaseFactory(config.database) }
     single { CacheService(config.redis) }
-    single { JwtService(config.jwt) }
+    single { JwtProvider(config.jwt) }
 
-    // users
-    single { UsersRepository() }
-    single { UsersService(get()) }
+    single { RoleRepository() }
+    single { RoleService(get()) }
 
-    // auth
-    single { RolesRepository() }
-    single { RolesService(get()) }
+    single { UserRepository() }
+    single { UserService(get()) }
+
     single { AuthService(get(), get()) }
 
-    // files
-    single { FilesRepository() }
-    single { FilesService(get(), config.files) }
+    single { FileRepository() }
+    single { FileService(get(), config.files) }
 
-    // todos
-    single { TodosRepository() }
-    single { TodosService(get()) }
+    single { TodoRepository() }
+    single { TodoService(get()) }
 }

@@ -63,14 +63,12 @@ data class AppConfig(
     val redis: RedisConfig,
     val throttle: ThrottleConfig,
     val files: FilesConfig,
-    val appTime: String,
 ) {
     val isProduction get() = appEnv == "production"
 
     companion object {
         fun from(env: Env) = AppConfig(
             appEnv = env.get("APP_ENV", "development"),
-            appTime = env.get("APP_TIME", "UTC"),
             port = env.int("PORT", 3000),
             database = DatabaseConfig(
                 host = env.get("DB_HOST", "localhost"),

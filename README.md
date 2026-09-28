@@ -2,11 +2,10 @@
 
 Starter backend Ktor yang siap dipakai ulang untuk project baru. Isinya:
 - Auth dengan JWT (access token + refresh token lewat cookie httpOnly)
-- RBAC berbasis permission
+- RBAC berbasis role & permission
 - Upload file dengan signed URL
-- Response envelope standar, semua field JSON snake_case
-- Cache Redis
-- Rate limiting
+- Response standar `BaseResponse` (`OK` / `FAILED`) dan `PageResponse`, field JSON snake_case
+- Cache Redis, rate limiting
 - Todo list per user
 - Logging request/response & query SQL ke file terpisah, data sensitif di-redact
 
@@ -17,100 +16,80 @@ Starter backend Ktor yang siap dipakai ulang untuk project baru. Isinya:
 | Framework | Ktor 3 (Netty) |
 | Database | MySQL + Exposed (DSL) + HikariCP |
 | DI | Koin |
+| Validasi | Plugin `RequestValidation` (bawaan Ktor) |
 | Cache | Redis (Lettuce) |
-| Auth | JWT (`ktor-server-auth-jwt`), refresh token via httpOnly cookie |
-| Validasi | Validator ringan bawaan project (`common/validation`) |
+| Auth | JWT (`ktor-server-auth-jwt`), bcrypt |
 | Test | JUnit 5 + Ktor `testApplication` + MockK |
 | Build | Gradle (wrapper sudah ada) |
 
-## Konsep utama
-
-| Kebutuhan | Cara di project ini |
-|---|---|
-| Daftar dependency (DI) | Koin, semua dipasang di `AppModule.kt` |
-| Controller / endpoint | `fun Route.xxxRoutes()` di tiap module |
-| Endpoint public | Route dipasang di luar `authenticate("jwt") { }` |
-| Wajib login | Route dipasang di dalam `authenticate("jwt") { }` |
-| Batasi role / permission | `authorize(roles = ..., permissions = ...) { }` |
-| User yang sedang login | `call.currentUser()` |
-| Response sukses | `call.success(data, "pesan")` atau `call.successNoData("pesan")` |
-| Response error | Lempar `NotFoundException(...)`, `ForbiddenException(...)`, dst. Otomatis dibungkus oleh `StatusPages` |
-| Validasi body / query | `call.receiveValid<Dto>(Dto.rules)` / `call.validateQuery(...)` |
-| Rate limit | Plugin `RateLimit` global per IP |
-| Tabel & query | Tabel Exposed (`*Table.kt`) + `*Repository` |
-| Auto-create tabel | `SchemaUtils.create(...)` saat `APP_ENV` bukan `production` |
-| Seed data awal | `./gradlew seed` |
-
-## Alur request
-
-```
-Request masuk
-   │
-   ▼
-RateLimit              → 429 kalau kelebihan
-   ▼
-authenticate("jwt")    → wajib login, kecuali route public
-   ▼
-authorize(roles=...)   → cek role (cukup salah satu)
-   ▼
-authorize(permissions=...) → cek permission (wajib semua)
-   ▼
-receiveValid / validateQuery → validasi body/query (400 kalau gagal)
-   ▼
-Route → Service → Repository → Database
-   ▼
-call.success(...)      → { status, code, message, data }
-   (atau)
-StatusPages            → { status: "error", code, message, data: null }
-```
-
 ## Struktur folder
+
+Mengikuti pola **feature-based modules** dari dokumentasi Ktor
+([Application structure](https://ktor.io/docs/server-application-structure.html)): setiap fitur adalah modul
+mandiri `fun Application.xxxModule()` berisi route, service, repository, dan DTO-nya sendiri.
 
 ```
 src/main/kotlin/com/example/
-├── Application.kt          # main + pemasangan plugin + routing /api/v1
-├── AppModule.kt            # wiring Koin
-├── common/
-│   ├── logging/            # HttpLogging, SqlFileLogger, Redactor
-│   ├── exceptions/         # HttpException, NotFoundException, dst
-│   ├── plugins/            # Authorization (roles/permissions), ErrorHandling, Http (CORS, JSON, rate limit), Security (JWT)
-│   ├── response/           # ApiResponse + call.success / respondError
-│   ├── security/           # AuthenticatedUser, PasswordHasher (bcrypt)
-│   ├── utils/              # Paging, SignedUrl, Durations ("15m", "7d"), Dates
-│   └── validation/         # aturan validasi body & query
+├── Application.kt          # main, pasang plugin global, panggil modul tiap fitur
+├── AppModule.kt            # wiring Koin (service & repository)
 ├── config/                 # AppConfig (.env), CacheService (Redis)
-├── database/
-│   ├── DatabaseFactory.kt  # koneksi + buat tabel + dbQuery {}
-│   └── seeds/              # permission, role, user admin
-└── modules/
-    ├── auth/               # register/login/refresh/logout, roles & permissions, JwtService
-    ├── users/              # CRUD user + pagination + search, soft delete
-    ├── files/              # upload, file private/public, signed URL
-    └── todos/              # todo list milik user yang login
+├── database/               # DatabaseFactory (koneksi + buat tabel + dbQuery {}), seeds/
+├── core/                   # kode bersama semua fitur
+│   ├── exception/          # DataNotFoundException, FieldValidationException, ... + GlobalException (StatusPages)
+│   ├── response/           # BaseResponse (isSuccess, isError, noData, send), PageResponse + pageRequest()
+│   ├── security/           # JwtProvider, configureSecurity, authorize { }, currentUser(), PasswordHasher
+│   ├── validation/         # rules { check(...) } untuk RequestValidation
+│   ├── logging/            # HttpLogging, SqlLogging, Redactor
+│   └── plugins/            # Http (JSON, CORS, rate limit, call id), VirtualThreads
+└── features/
+    ├── auth/  user/  role/  file/
+    └── todo/
+        ├── TodoRoutes.kt       # fun Application.todoModule(): route + auth + RequestValidation
+        ├── TodoService.kt      # logika bisnis + mapping ke response (private toResponse)
+        ├── TodoRepository.kt   # query Exposed
+        ├── TodoDto.kt          # request (+ aturan validasi) & response
+        └── TodoTable.kt        # tabel Exposed + data class entity
 ```
 
-## Skema database
+Aturan singkat:
+- **Routes** → baca request, panggil service, `call.send(data.isSuccess(message = "..."))`.
+- **Service** → logika bisnis, `throw DataNotFoundException(...)`. Mapping entity → response sebagai
+  `private fun X.toResponse()`, atau di `XxxMapper.kt` kalau dipakai lebih dari satu fitur (contoh: `RoleMapper.kt`).
+- **Repository** → query Exposed saja. Soft delete: selalu filter `deletedAt.isNull()`.
+- **Dto** → bentuk data request/response + aturan validasi request.
 
+## Response
+
+```json
+{ "status": "OK", "code": 200, "message": "Berhasil ambil data todo", "data": { ... } }
+{ "status": "FAILED", "code": 404, "message": "Todo tidak ditemukan", "data": null }
+{ "status": "FAILED", "code": 400, "message": "Validation Failed", "data": { "title": "wajib diisi" } }
 ```
-users ───┐
-         │ M:N (tabel: user_roles)
-roles ───┤
-         │ M:N (tabel: role_has_permission)
-permissions
 
-files   (independen)
-todos   (milik users, lewat user_id)
+List dengan pagination (`?page=0&size=10`, page mulai dari 0):
+
+```json
+{ "content": [ ... ], "page": { "size": 10, "number": 0, "total_elements": 25, "total_pages": 3 } }
 ```
 
-Semua primary key berupa UUID (string). `users`, `roles`, `permissions`, dan `files` punya kolom `deleted_at` (soft delete), dan data yang sudah dihapus otomatis tidak ikut di query. Semua kolom memakai snake_case.
+## Auth
 
-### Zona waktu
+- Login / register / refresh mengembalikan `access_token` di body, refresh token di cookie httpOnly `refresh_token`.
+  Umur cookie sama dengan umur refresh token (`JWT_REFRESH_EXPIRES_IN`).
+- Kirim access token di header `Authorization: Bearer <access_token>`.
+- Setiap token membawa claim `type` (`access` / `refresh`). Access token ditolak di `/auth/refresh`, refresh token
+  ditolak sebagai access token.
+- `authenticate(JWT_AUTH) { }` = wajib login, `authorize(roles = ..., permissions = ...) { }` = role cukup salah satu,
+  permission wajib semua. User yang login: `call.currentUser()`.
 
-Timestamp (`created_at`, `updated_at`, `deleted_at`) disimpan dan dikirim sesuai zona `APP_TIME`. Defaultnya UTC (`+00:00`), dan bisa diganti ke jam lokal (mis. `+07:00` untuk WIB) kalau aplikasinya dipakai di satu zona waktu.
+## Tanggal & waktu
 
-- Isi `APP_TIME` dengan format offset: `+00:00` (UTC, default di `.env.example`), `+07:00` (WIB), `+08:00` (WITA), atau `+09:00` (WIT). Tulisan `UTC` atau `Asia/Jakarta` **tidak** didukung.
-- Di response, timestamp berakhiran `Z` (mis. `2026-09-24T10:15:00.000Z`), tapi jamnya tetap jam lokal. Tampilkan apa adanya di client, jangan dikonversi zona waktu.
-- Jangan mengganti `APP_TIME` setelah ada data, karena database tidak mencatat zonanya dan data lama akan terbaca dengan zona yang baru.
+- Kejadian (`created_at`, `updated_at`, `completed_at`) disimpan dalam **UTC** (`LocalDateTime.now(ZoneOffset.UTC)`)
+  dan dikirim sebagai ISO, mis. `"2026-09-28T05:59:21.953Z"`. Frontend yang menampilkannya sesuai zona waktu browser.
+- Tanggal kalender (tanggal lahir, cuti, dll) pakai `LocalDate` dan dikirim sebagai string `"YYYY-MM-DD"`, jangan
+  diubah jadi datetime.
+- Perbandingan dengan "hari ini" (kedaluwarsa, terlambat) dihitung di aplikasi dengan zona waktu bisnis yang jelas,
+  bukan `NOW()` / `CURDATE()` di SQL.
 
 ## Setup
 
@@ -122,7 +101,8 @@ cp .env.example .env      # lalu sesuaikan
 ./gradlew run             # jalan di http://localhost:3000
 ```
 
-Buat dulu database `DB_DATABASE`-nya di MySQL. Tabel akan dibuat otomatis selama `APP_ENV` bukan `production`.
+Buat dulu database `DB_DATABASE`-nya di MySQL. Tabel dibuat otomatis selama `APP_ENV` bukan `production`
+(`SchemaUtils.create` hanya membuat tabel yang belum ada, tidak mengubah tabel lama).
 
 User admin default: **`admin@example.com` / `admin12345`**
 
@@ -130,15 +110,94 @@ User admin default: **`admin@example.com` / `admin12345`**
 |---|---|
 | `APP_ENV` | `production` untuk mematikan auto-create tabel dan menyalakan cookie `secure` |
 | `PORT` | Port server (default 3000) |
-| `APP_TIME` | **Wajib diisi.** Zona waktu timestamp, format offset: `+00:00` (UTC), `+07:00`, `+08:00`, `+09:00` |
 | `DB_*` | Koneksi MySQL |
 | `JWT_SECRET` | **Wajib diganti** sebelum production |
-| `JWT_ACCESS_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN` | Format `15m`, `7d`, `1h`, dst |
+| `JWT_ACCESS_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN` | Format durasi Kotlin: `15m`, `7d`, `1h 30m` |
 | `REDIS_*`, `CACHE_TTL` | Koneksi Redis dan TTL default cache (detik) |
 | `THROTTLE_TTL`, `THROTTLE_LIMIT` | Rate limit: jumlah request per sekian detik per IP |
 | `APP_URL` | Base URL aplikasi, dipakai untuk signed URL |
 | `FILE_TEMP_DIR`, `FILE_STORAGE_DIR` | Folder penyimpanan file |
 | `SIGNED_URL_SECRET` | **Wajib diganti** sebelum production |
+
+## Menambah fitur baru
+
+Contoh fitur `unit`: buat folder `features/unit/` berisi 5 file (lihat `features/todo/` sebagai contoh lengkap).
+
+```kotlin
+// UnitDto.kt
+@Serializable
+data class UnitRequest(val kodeUnit: String = "", val namaUnit: String = "")
+
+@Serializable
+data class UnitResponse(val id: String, val kodeUnit: String, val namaUnit: String)
+
+fun UnitRequest.validate() = rules {
+    check("kode_unit", kodeUnit.isNotBlank(), "wajib diisi")
+    check("nama_unit", namaUnit.isNotBlank(), "wajib diisi")
+}
+```
+
+```kotlin
+// UnitService.kt
+class UnitService(private val repository: UnitRepository) {
+    suspend fun create(request: UnitRequest): UnitResponse {
+        if (repository.existsByKodeUnit(request.kodeUnit)) {
+            throw FieldValidationException(mapOf("kode_unit" to "kode unit sudah dipakai"))
+        }
+        return repository.create(request).toResponse()
+    }
+
+    suspend fun findById(id: String): UnitResponse =
+        repository.findById(id)?.toResponse() ?: throw DataNotFoundException("Unit tidak ditemukan")
+
+    private fun Unit.toResponse() = UnitResponse(id = id, kodeUnit = kodeUnit, namaUnit = namaUnit)
+}
+```
+
+```kotlin
+// UnitRoutes.kt
+fun Application.unitModule() {
+    val unitService by inject<UnitService>()
+
+    routing {
+        authenticate(JWT_AUTH) {
+            route("/api/v1/units") {
+                install(RequestValidation) { validate<UnitRequest> { it.validate() } }
+
+                authorize(permissions = listOf("units:create")) {
+                    post {
+                        val request = call.receive<UnitRequest>()   // validasi otomatis jalan di sini
+                        call.send(unitService.create(request).isSuccess(201, "Unit berhasil dibuat"))
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+Lalu daftarkan `single { UnitRepository() }` + `single { UnitService(get()) }` di `AppModule.kt`,
+panggil `unitModule()` di `Application.kt`, dan tambahkan `UnitTable` ke `ALL_TABLES` di `DatabaseFactory.kt`.
+
+## Ringkasan endpoint
+
+Semua endpoint diawali `/api/v1`.
+
+| Method | Endpoint | Akses | Keterangan |
+|---|---|---|---|
+| POST | `/auth/register` | Public | Daftar user baru |
+| POST | `/auth/login` | Public | Login, access token di body, refresh token di cookie |
+| PATCH | `/auth/refresh` | Cookie refresh token | Refresh access token |
+| POST | `/auth/logout` | Public | Hapus cookie refresh token |
+| GET | `/roles`, `/roles/{id}`, `/permissions` | `roles:read` | List / detail role & permission |
+| PATCH | `/roles/{id}/permissions` | `roles:update` | Ganti permission role (`{ "permission_ids": [...] }`) |
+| GET | `/users?page=&size=&search=`, `/users/{id}` | `users:read` | List / detail user |
+| POST / PATCH / DELETE | `/users`, `/users/{id}` | role `admin` + `users:create/update/delete` | Kelola user (delete = soft delete) |
+| POST | `/files/store` | Login | Upload file (multipart, field `files`) |
+| GET | `/files/{id}`, `/files/{id}/signed-url` | Login | Isi file / signed URL sementara (2 menit) |
+| GET | `/files/public/{id}`, `/files/public/{id}/data` | Public | File berstatus `public` |
+| GET | `/files/signed/{id}` | Signature valid | Akses file lewat signed URL |
+| GET / POST / PATCH / DELETE | `/todos?page=&size=&search=&is_completed=`, `/todos/{id}` | Login | Todo milik sendiri (`is_completed` hanya `true` / `false`) |
 
 ## Docker
 
@@ -148,16 +207,14 @@ docker compose run --rm app bin/seed  # seed data awal (sekali saja)
 docker compose logs -f app
 ```
 
-- Image memakai JDK 25 (`eclipse-temurin:25-jre`), dibangun multi-stage, dan berjalan sebagai user non-root.
-- Nilai konfigurasi diambil dari `.env`. Host/port database dan Redis otomatis diarahkan ke service compose (`mysql`, `redis`).
-- Port di host bisa diganti kalau bentrok: `APP_PORT` (default 3000), `MYSQL_PORT` (3307), `REDIS_HOST_PORT` (6380).
-- File upload disimpan di volume `storage`, log ditulis ke folder `./logs` di host.
+Image memakai JDK 25 (`eclipse-temurin:25-jre`), dibangun multi-stage, dan berjalan sebagai user non-root. Port di host
+bisa diganti kalau bentrok: `APP_PORT` (3000), `MYSQL_PORT` (3307), `REDIS_HOST_PORT` (6380).
 
 ## Virtual threads
 
-Semua request diproses di virtual thread (JDK 21+) secara default, lewat `configureVirtualThreads()` di `Application.kt`. Kode route, service, dan repository boleh langsung memanggil I/O blocking (JDBC, file, Redis) tanpa `withContext(...)`.
-
-Pengecualian: kerja berat CPU seperti hash bcrypt tetap dijalankan di `Dispatchers.Default` (lihat `PasswordHasher`).
+Semua request diproses di virtual thread (JDK 21+) lewat `configureVirtualThreads()`. Kode route, service, dan
+repository boleh langsung memanggil I/O blocking (JDBC, file, Redis). Kerja berat CPU seperti hash bcrypt tetap di
+`Dispatchers.Default` (lihat `PasswordHasher`).
 
 ## Testing
 
@@ -165,84 +222,25 @@ Pengecualian: kerja berat CPU seperti hash bcrypt tetap dijalankan di `Dispatche
 ./gradlew test
 ```
 
-## Ringkasan endpoint
+Unit test service (repository di-mock) dan test route (service di-mock lewat Koin override), jadi tidak butuh MySQL/Redis.
+Test per fitur ada di `src/test/kotlin/com/example/features/`.
 
-Semua endpoint diawali `/api/v1`.
-
-| Method | Endpoint | Auth | Keterangan |
-|---|---|---|---|
-| POST | `/auth/register` | Public | Daftar user baru |
-| POST | `/auth/login` | Public | Login, mengembalikan access token dan set cookie refresh token |
-| PATCH | `/auth/refresh` | Public (butuh cookie) | Refresh access token |
-| POST | `/auth/logout` | Public | Hapus cookie refresh token |
-| GET | `/roles` | `roles:read` | List role |
-| GET | `/permissions` | `roles:read` | List permission |
-| GET | `/roles/{id}` | `roles:read` | Detail role beserta permission-nya |
-| PATCH | `/roles/{id}/permissions` | `roles:update` | Ganti permission suatu role |
-| POST | `/users` | `admin` + `users:create` | Buat user |
-| GET | `/users?page=&size=&search=` | `users:read` | List user (pagination + search) |
-| GET | `/users/{id}` | `users:read` | Detail user |
-| PATCH | `/users/{id}` | `admin` + `users:update` | Update user |
-| DELETE | `/users/{id}` | `admin` + `users:delete` | Soft-delete user |
-| POST | `/files/store` | login | Upload file (multipart, field `files`) |
-| GET | `/files/{id}` | login | Ambil isi file (private) |
-| GET | `/files/{id}/signed-url` | login | Generate signed URL sementara (2 menit) |
-| GET | `/files/public/{id}` | Public | Ambil isi file berstatus `public` |
-| GET | `/files/public/{id}/data` | Public | Generate signed URL untuk file public |
-| GET | `/files/signed/{id}` | Public + signature valid | Akses file lewat signed URL |
-| POST | `/todos` | login | Buat todo |
-| GET | `/todos?page=&size=&search=&is_completed=` | login | List todo milik sendiri (pagination, search, filter status) |
-| GET | `/todos/{id}` | login | Detail todo |
-| PATCH | `/todos/{id}` | login | Update todo (`is_completed: true` mengisi `completed_at`) |
-| DELETE | `/todos/{id}` | login | Soft-delete todo |
-
-Todo hanya bisa diakses pemiliknya. Todo milik user lain dianggap tidak ada (404).
+> Fungsi test yang memakai `runBlocking` ditulis dengan block body (`fun x() { runBlocking { ... } }`).
+> Bentuk `fun x() = runBlocking { ... }` yang mengembalikan nilai akan diam-diam dilewati JUnit.
 
 ## Logging
 
-Log ditulis ke folder `logs/` (bisa diganti lewat env var `LOG_DIR`), dirotasi harian atau per 10MB, dan disimpan 14 hari.
+Log ditulis ke folder `logs/` (ganti lewat `LOG_DIR`), dirotasi harian / 10MB, disimpan 14 hari.
 
 | File | Isi |
 |---|---|
-| `logs/http.log` | Detail tiap request & response: method, URL, status, durasi, header, body |
+| `logs/http.log` | Detail tiap request & response (body request dibaca ulang lewat plugin `DoubleReceive`) |
 | `logs/sql.log` | Tiap query SQL beserta nilai parameternya |
-| `logs/app.log` | Log aplikasi lainnya (startup, error, dsb). Juga tampil di console |
+| `logs/app.log` | Log aplikasi (startup, error). Juga tampil di console |
 
-Setiap request punya `request_id` (dikirim balik di header `X-Request-Id`). ID yang sama muncul di `http.log` dan `sql.log`, jadi query milik satu request bisa dicari dengan `grep <request_id> logs/*.log`.
-
-**Data sensitif disamarkan jadi `[REDACTED]`:**
-- Field JSON yang namanya `password`, `access_token`, `refresh_token`, `token`, `secret`, `signature`, atau mengandung kata `password`/`token`/`secret` (mis. `new_password`)
-- Header `Authorization`, `Cookie`, `Set-Cookie`, dan query `signature`
-- Nilai parameter SQL saat INSERT/UPDATE kolom `password`
-
-Isi file upload/download tidak dicatat, hanya jenis dan ukurannya. Untuk menambah field sensitif, edit `SENSITIVE_KEYS` di `common/logging/Redactor.kt`. Untuk mematikan log query, ubah level logger `sql` jadi `OFF` di `logback.xml`.
-
-## Cara menambah endpoint yang diproteksi
-
-```kotlin
-fun Route.contohRoutes() {
-    val contohService by inject<ContohService>()
-
-    route("/contoh") {
-        // wajib login + punya permission ini
-        authorize(permissions = listOf("contoh:read")) {
-            get { call.success(contohService.findAll()) }
-        }
-
-        // wajib role admin DAN permission contoh:delete
-        authorize(roles = listOf("admin"), permissions = listOf("contoh:delete")) {
-            delete("{id}") {
-                contohService.remove(call.parameters["id"]!!)
-                call.successNoData("Berhasil dihapus")
-            }
-        }
-
-        get("/me") { call.success(call.currentUser()) }
-    }
-}
-```
-
-Pasang route-nya di `Application.kt`, di dalam `authenticate(JWT_AUTH) { }`. Untuk endpoint public, pasang di luarnya.
+Setiap request punya `request_id` (header `X-Request-Id`) yang muncul di `http.log` dan `sql.log`
+(`grep <request_id> logs/*.log`). Password, token, header `Authorization`/`Cookie`, dan parameter SQL kolom `password`
+disamarkan jadi `[REDACTED]` (daftar field di `core/logging/Redactor.kt`).
 
 ## Contoh pakai cache
 

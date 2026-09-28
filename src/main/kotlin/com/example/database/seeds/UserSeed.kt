@@ -1,12 +1,13 @@
 package com.example.database.seeds
 
-import com.example.common.utils.nowDateTime
-import com.example.modules.auth.RolesTable
-import com.example.modules.users.UserRolesTable
-import com.example.modules.users.UsersTable
+import com.example.features.role.RoleTable
+import com.example.features.user.UserRoleTable
+import com.example.features.user.UserTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 import java.util.UUID
 
 private const val ADMIN_EMAIL = "admin@example.com"
@@ -15,17 +16,17 @@ const val ADMIN_PASSWORD = "admin12345"
 
 /** Wajib dipanggil di dalam transaksi, setelah [seedRoles]. [passwordHash] = hash dari [ADMIN_PASSWORD]. */
 fun seedAdminUser(passwordHash: String) {
-    if (!UsersTable.selectAll().where { UsersTable.email eq ADMIN_EMAIL }.empty()) {
+    if (!UserTable.selectAll().where { UserTable.email eq ADMIN_EMAIL }.empty()) {
         println("[seed] user \"$ADMIN_EMAIL\" sudah ada, skip")
         return
     }
 
-    val adminRoleId = RolesTable.selectAll().where { RolesTable.name eq "admin" }.singleOrNull()?.get(RolesTable.id)
+    val adminRoleId = RoleTable.selectAll().where { RoleTable.name eq "admin" }.singleOrNull()?.get(RoleTable.id)
         ?: error("Role \"admin\" belum ada — jalankan seedRoles() dulu")
 
     val userId = UUID.randomUUID().toString()
-    val now = nowDateTime()
-    UsersTable.insert {
+    val now = LocalDateTime.now(ZoneOffset.UTC)
+    UserTable.insert {
         it[id] = userId
         it[email] = ADMIN_EMAIL
         it[name] = ADMIN_NAME
@@ -33,8 +34,8 @@ fun seedAdminUser(passwordHash: String) {
         it[createdAt] = now
         it[updatedAt] = now
     }
-    UserRolesTable.insert {
-        it[UserRolesTable.userId] = userId
+    UserRoleTable.insert {
+        it[UserRoleTable.userId] = userId
         it[roleId] = adminRoleId
     }
 

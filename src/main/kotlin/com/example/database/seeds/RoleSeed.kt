@@ -1,8 +1,8 @@
 package com.example.database.seeds
 
-import com.example.modules.auth.PermissionsTable
-import com.example.modules.auth.RoleHasPermissionTable
-import com.example.modules.auth.RolesTable
+import com.example.features.role.PermissionTable
+import com.example.features.role.RoleHasPermissionTable
+import com.example.features.role.RoleTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.jdbc.batchInsert
@@ -19,17 +19,17 @@ private val ROLE_PERMISSIONS = mapOf(
 /** Wajib dipanggil di dalam transaksi, setelah [seedPermissions]. */
 fun seedRoles() {
     for ((name, permissionNames) in ROLE_PERMISSIONS) {
-        val permissions = PermissionsTable.selectAll()
-            .where { PermissionsTable.name inList permissionNames }
-            .associate { it[PermissionsTable.id] to it[PermissionsTable.name] }
+        val permissions = PermissionTable.selectAll()
+            .where { PermissionTable.name inList permissionNames }
+            .associate { it[PermissionTable.id] to it[PermissionTable.name] }
 
-        val existing = RolesTable.selectAll().where { RolesTable.name eq name }.singleOrNull()
-        val roleId = existing?.get(RolesTable.id) ?: UUID.randomUUID().toString()
+        val existing = RoleTable.selectAll().where { RoleTable.name eq name }.singleOrNull()
+        val roleId = existing?.get(RoleTable.id) ?: UUID.randomUUID().toString()
 
         if (existing == null) {
-            RolesTable.insert {
+            RoleTable.insert {
                 it[id] = roleId
-                it[RolesTable.name] = name
+                it[RoleTable.name] = name
             }
         }
 

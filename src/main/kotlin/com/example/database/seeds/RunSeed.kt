@@ -1,6 +1,6 @@
 package com.example.database.seeds
 
-import com.example.common.security.PasswordHasher
+import com.example.core.security.PasswordHasher
 import com.example.config.AppConfig
 import com.example.config.Env
 import com.example.database.DatabaseFactory
